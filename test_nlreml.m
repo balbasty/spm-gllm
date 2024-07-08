@@ -1,3 +1,4 @@
+rng(0);
 PLOT = false;
 
 % -------------------------------------------------------------------------
@@ -9,7 +10,7 @@ X = [O' Z' Z' -T'           % Design matrix
      Z' O' Z' -T'
      Z' Z' O' -T'];
 
-N = 36864;
+N = 192*192;
 M = size(X,1);
 K = size(X,2);
 
@@ -34,5 +35,17 @@ end
 
 % -------------------------------------------------------------------------
 % nlreml
+T2    = T.^2;
+Q     = [O O O; T T T; T2 T2 T2];
 Y     = Y0 + SD .* randn([N M]);
-[C,B] = gllm_reml(Y,X,[],struct('verb',2,'fit',struct('verb',0)));
+QQ    = zeros(3, M, M);
+QQ(:,spm_diagind(M)) = Q;
+[C,B] = gllm_reml(Y,X,QQ,struct('verb',2,'fit',struct('verb',0,'mode','estatics')));
+
+
+% -------------------------------------------------------------------------
+% plot
+figure
+scatter(SD(:), sqrt(C(:)));
+xlabel('True SD');
+ylabel('ReML SD');

@@ -48,7 +48,7 @@ end
 
 function t = trace_AB(d,A,B)
 % TODO: can we do better than using batch_transpose?
-AB = spmb_matmul(spmb_transpose(A,'dim',d),B,'dim',d);
+AB = spmb_transpose(A,'dim',d) .* B;
 if d < 0
     d = d + ndims(A);
 end

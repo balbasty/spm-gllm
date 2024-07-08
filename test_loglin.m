@@ -10,6 +10,9 @@ X = [O' Z' Z' -T'           % Design matrix
      Z' O' Z' -T'
      Z' Z' O' -T'];
 
+M = size(X,1);
+K = size(X,2);
+
 BB = [2 2.2 2.4 1];         % True parameters (3x intercept + decay rate)
 SD = 0.2;                   % Noise standard deviation
 Y0 = exp(BB*X');            % Noise-free signal
@@ -50,6 +53,7 @@ out.logfit.B2 = B2 - B1'*B1;
 
 % -------------------------------------------------------------------------
 % logfit IRLS
+W  = spm_unsqueeze(eye(M),1);
 B1 = 0;
 B2 = 0;
 for b=1:B0

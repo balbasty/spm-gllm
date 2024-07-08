@@ -7,6 +7,7 @@ function varargout = spmb_full2sym(varargin)
 % H - (K2 x 1)  Batch of sparse matrices (K2 = (K*(K+1))/2)
 %__________________________________________________________________________
 %
+% FORMAT spmb_full2sym(F,DIM)
 % FORMAT spmb_full2sym(...,'dim',DIM)
 %
 % DIM - (int) Index of first (>0: left, <0: right) nonbatch dimensions [1]
@@ -30,7 +31,15 @@ function varargout = spmb_full2sym(varargin)
 
 % Yael Balbastre
 
-[dim,args] = spmb_parse_dim(varargin{:});
+% Parse "dim" keyword argument
+args = varargin;
+if nargin >= 2 && isnumeric(args{2})
+    dim     = args{2};
+    args(2) = [];
+else
+    [dim,args] = spmb_parse_dim(args{:});
+end
+
 if dim > 0
     [varargout{1:nargout}] = left_full2sym(dim,args{:});
 else

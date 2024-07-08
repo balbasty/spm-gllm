@@ -34,9 +34,9 @@ function varargout = spmb_dot(varargin)
 %__________________________________________________________________________
 
 % Yael Balbastre
-args = varargin;
 
 % Parse "dim" keyword argument
+args = varargin;
 if nargin >= 3 && isnumeric(args{3})
     dim     = args{3};
     args(3) = [];

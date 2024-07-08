@@ -1,7 +1,7 @@
 function [C,h,P] = glm_reml(YY,X,Q,opt)
 % ReML estimate of covariance in a linear model (reimplements spm_reml)
 %
-% FORMAT [C,h,P] = simple_reml(YY,X,Q,opt)
+% FORMAT [C,h,P] = glm_reml(YY,X,Q,opt)
 %__________________________________________________________________________
 %
 % YY - (M x M)     Observed second moments (/N, spatially whitened)

@@ -1,13 +1,14 @@
-function varargout = spmb_matmul(varargin)
+function C = spmb_matmul(A,B,varargin)
 % Compute the matrix product between batches of matrices
 %
-% FORMAT C = spmb_matmul(A, B)
+% FORMAT C = spmb_matmul(A,B)
 %
 % A - (M x N) Input batch of left matrices
 % B - (N x K) Input batch of right matrices
 % C - (M x K) Output batch of matrices
 %__________________________________________________________________________
 %
+% FORMAT spmb_matmul(A,B,DIM)
 % FORMAT spmb_matmul(...,'dim',DIM)
 %
 % DIM - (int) Index of first (>0: left, <0: right) nonbatch dimensions [1]
@@ -29,11 +30,16 @@ function varargout = spmb_matmul(varargin)
 
 % Yael Balbastre
 
-[dim,args] = spmb_parse_dim(varargin{:});
-if dim > 0
-    [varargout{1:nargout}] = left_matmul(dim,args{:});
+if ~isempty(varargin) && isnumeric(varargin{1})
+    dim     = varargin{1};
 else
-    [varargout{1:nargout}] = right_matmul(dim,args{:});
+    [dim,~] = spmb_parse_dim(varargin{:});
+end
+
+if dim > 0
+    C = left_matmul(dim,A,B);
+else
+    C = right_matmul(dim,A,B);
 end
 
 end

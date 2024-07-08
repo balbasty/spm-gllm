@@ -57,11 +57,20 @@ function V = left_solve(d,H,G,L)
 
 if nargin < 4, L = 0; end
 
-asrow = isrow(G) && isrow(H) && isvector(L);
-if isrow(G), G = reshape(G, size(G,2), size(G,1)); end
-if isrow(H), H = reshape(H, size(H,2), size(H,1)); end
-             V = solve(d,H,G,L);
-if asrow,    V = reshape(V,size(V,2),size(V,1)); end
+K  = size(G,d);
+K2 = size(H,d);
+Q  = size(L,d);
+
+if K2 ~= 2*K-1 || (Q ~= K && Q ~= 1)
+    msg = 'Incompatible shapes.';
+    if isvector(G) || isvector(H) || isvector(L)
+        msg = [msg ' ' 'Some inputs may be row vectors instead of ' ...
+                       'column vectors or vice versa.'];
+    end
+    error(msg);
+end
+
+V = solve(d,H,G,L);
 end
 
 % =========================================================================
@@ -70,11 +79,20 @@ function V = right_solve(d,H,G,L)
 
 if nargin < 4, L = 0; end
 
-ascolumn = iscolumn(G) && iscolumn(H) && isvector(L);
-if iscolumn(G), G = reshape(G, size(G,2), size(G,1)); end
-if iscolumn(H), H = reshape(H, size(H,2), size(H,1)); end
-                V = solve(d,H,G,L);
-if ascolumn,    V = reshape(V,size(V,2),size(V,1)); end
+K  = size(G,ndims(G)+d+1);
+K2 = size(H,ndims(H)+d+1);
+Q  = size(L,ndims(L)+d+1);
+
+if K2 ~= 2*K-1 || (Q ~= K && Q ~= 1)
+    msg = 'Incompatible shapes.';
+    if isvector(G) || isvector(H) || isvector(L)
+        msg = [msg ' ' 'Some inputs may be row vectors instead of ' ...
+                       'column vectors or vice versa.'];
+    end
+    error(msg);
+end
+
+V = solve(d,H,G,L);
 end
 
 % =========================================================================
