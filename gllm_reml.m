@@ -232,7 +232,14 @@ end
 S  = spmb_sym_outer(spm_unsqueeze(X',1), S, 'dim', 2); % Precision about B
 S(:,1:K) = S(:,1:K) + max(abs(S(:,1:K)),[],2) * 1e-8;
 S  = spmb_sym_inv(S, 'dim', 2);                        % Uncertainty about B
+if false
 S  = spmb_sym_outer(spm_unsqueeze(X,1), S, 'dim', 2);  % Uncertainty about BX'
+else
+% This is faster than sym_outer (still unsure why?)
+S = spmb_sym2full(S,'dim',2);
+S = spmb_matmul(spmb_matmul(spm_unsqueeze(X,1),S,2), spm_unsqueeze(X',1),2);
+S = spmb_full2sym(S,'dim',2);
+end
 S  = exp(S);
 ZZ = spmb_sym_outer(Z,'dim',2);                        % \hat{z} * \hat{z}'
 ZZ = spm_squeeze(dot(ZZ, S, 1), 1);                    % \sum_n E[z(n) * z(n)']

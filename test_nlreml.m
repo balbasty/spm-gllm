@@ -36,11 +36,9 @@ end
 % -------------------------------------------------------------------------
 % nlreml
 T2    = T.^2;
-Q     = [O O O; T T T; T2 T2 T2];
+Q     = [O O O; T T T];
 Y     = Y0 + SD .* randn([N M]);
-QQ    = zeros(3, M, M);
-QQ(:,spm_diagind(M)) = Q;
-[C,B] = gllm_reml(Y,X,QQ,struct('verb',2,'fit',struct('verb',0,'mode','estatics')));
+[C,B] = gllm_reml(Y,X,Q,struct('verb',2,'fit',struct('verb',0,'mode','estatics')));
 
 
 % -------------------------------------------------------------------------

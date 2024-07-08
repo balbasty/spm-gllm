@@ -84,7 +84,6 @@ end
 
 % =========================================================================
 function A = left_outer(d,X,H)
-% if isrow(X), X = reshape(X, size(X,2), size(X,1)); end
 K           = size(X,d);
 N           = size(X,d+1);
 K2          = (K*(K+1))/2;
@@ -93,7 +92,6 @@ Xshape      = size(X);
 Xlbatch     = Xshape(1:d-1);
 Xrbatch     = Xshape(d+2:end);
 if nargin > 2
-    % if isrow(H), H = reshape(H, size(H,2), size(H,1)); end
     if size(H,d) ~= N2
         msg = 'Inconsistant matrix sizes.';
         if isrow(X) || isrow(H)
@@ -120,7 +118,8 @@ if nargin > 2
     Aidx    = mapidx(K);
     for i=1:K
         Xi = reshape(X(l{:},i,:,r{:}), [Xlbatch N Xrbatch]);
-    for j=i:K
+        A(l{:},Aidx(i,i),r{:}) = spmb_sym_inner(Xi,H,'dim', d);
+    for j=i+1:K
         Xj = reshape(X(l{:},j,:,r{:}), [Xlbatch N Xrbatch]);
         A(l{:},Aidx(i,j),r{:}) = spmb_sym_inner(Xi,H,Xj,'dim', d);
     end
@@ -136,7 +135,6 @@ end
 
 % =========================================================================
 function A = right_outer(d,X,H)
-% if iscolumn(X), X = reshape(X, size(X,2), size(X,1)); end
 K           = size(X,ndims(X)+d);
 N           = size(X,ndims(X)+d+1);
 K2          = (K*(K+1))/2;
@@ -145,7 +143,6 @@ Xshape      = size(X);
 Xlbatch     = Xshape(1:end+d-1);
 Xrbatch     = Xshape(end+d+2:end);
 if nargin > 2
-    % if iscolumn(H), H = reshape(H, size(H,2), size(H,1)); end
     if size(H,ndims(X)+d+1) ~= N2
         msg = 'Inconsistant matrix sizes.';
         if iscolumn(X) || iscolumn(H)
