@@ -2,7 +2,7 @@ FOLDER = '/Users/balbasty/localdata/antoine/ExampleDataITS';
 
 % -------------------------------------------------------------------------
 % Get files
-fnames = spm_select('FPList',[FOLDER '/Standard/rep1/'],'.nii$');
+fnames = spm_select('FPList',[FOLDER '/ITS/rep1/'],'.nii$');
 
 % -------------------------------------------------------------------------
 % Build virtual array of observations

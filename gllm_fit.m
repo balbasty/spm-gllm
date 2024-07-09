@@ -15,7 +15,7 @@ function [B,F] = gllm_fit(Y,X,W,opt)
 % K - Number of parameters
 %__________________________________________________________________________
 %
-% opt.iter  - (int)                            Number of iterations    [20]
+% opt.iter  - (int)                            Number of iterations    [32]
 % opt.tol   - (float)                          Early stop tolerance   [eps]
 % opt.mode  - ('auto'|'full'|'sym'|'estatics') Inversion mode        [auto]
 % opt.proc  - (handle)                         Postprocessing            []
@@ -57,7 +57,7 @@ USE_SPM_FIELD = true;
 if nargin < 3, W   = 1;      end
 if nargin < 4, opt = struct; end
 
-if ~isfield(opt, 'iter'),  opt.iter  = 20;     end
+if ~isfield(opt, 'iter'),  opt.iter  = 32;     end
 if ~isfield(opt, 'mode'),  opt.mode  = 'auto'; end
 if ~isfield(opt, 'proc'),  opt.proc  = @(B) B; end
 if ~isfield(opt, 'accel'), opt.accel = 0;      end

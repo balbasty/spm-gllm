@@ -420,7 +420,7 @@ end
 % -------------------------------------------------------------------------
 % Loop
 armijo = 0.01;
-for n=1:32
+for n=1:256
 
     % ---------------------------------------------------------------------
     % Gradient and Hessian
@@ -463,7 +463,7 @@ for n=1:32
     L0 = L;
     armijo = armijo * 1.1;
     dh     = dh * armijo;
-    while true
+    for ls=1:48
         C = spm_squeeze(sum((h-dh).*Q,1),1) * lam;
         if layout == 'D', L = sum(C)   - sum(log(C))   - size(C,1);
         else,             L = trace(C) - spm_logdet(C) - size(C,1);
@@ -472,6 +472,7 @@ for n=1:32
         dh     = 0.5 * dh;
         armijo = 0.5 * armijo;
     end
+    if L >= L0, break; end
     h  = h - dh; 
 
     if verb
@@ -480,7 +481,7 @@ for n=1:32
         msg = sprintf('(dkl) %4d | %10.4g | %10.4g |', n, L, ghg);
         fprintf(msg);
     end
-    if ghg < 1e-8;  break; end 
+    if ghg < eps(class(ghg));  break; end 
 end
 if verb, fprintf('\n'); end
 
