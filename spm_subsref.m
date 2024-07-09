@@ -12,11 +12,11 @@ function V = spm_subsref(A,i,d)
 
 % Yael Balbastre
 
-s = repmat({':'}, max(ndims(A),max(d)));
-d = [d ones(max(0,length(A)-length(d)))];
+s = repmat({':'}, 1, max(ndims(A),max(d)));
+d = [d ones(1,max(0,numel(i)-length(d)))];
 
 for n=1:length(i)
-    s{d(n)} = i{d};
+    s{d(n)} = i{n};
 end
 
 V = A(s{:});

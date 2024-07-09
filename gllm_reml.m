@@ -22,7 +22,7 @@ function [C,B,h,P] = gllm_reml(Y,X,Q,opt)
 % opt.lam   - Incomplete integral regularization (1/t)               [0.25]
 % opt.lev   - Levenberg regularization                                  [0]
 % opt.mqd   - Marquardt regularization                                  [0]
-% opt.accel - Hessian weight (robust:0...1:fisher)                    [0.5]
+% opt.accel - Hessian weight (robust:0...1:fisher)                      [0]
 % opt.iter  - Maximum number of EM iterations                          [32]
 % opt.tol   - Tolerance for early stopping                              [0]
 % opt.hE    - Hyperprior mean                                           [0]
@@ -58,7 +58,7 @@ if ~isfield(opt, 'lev'),   opt.lev   = 0;       end
 if ~isfield(opt, 'mqd'),   opt.mqd   = 0;       end
 if ~isfield(opt, 'accel'), opt.accel = 0;       end
 if ~isfield(opt, 'iter'),  opt.iter  = 128;     end
-if ~isfield(opt, 'tol'),   opt.tol   = 0;       end
+if ~isfield(opt, 'tol'),   opt.tol   = eps;       end
 if ~isfield(opt, 'hE'),    opt.hE    = 0;       end
 if ~isfield(opt, 'hP'),    opt.hP    = exp(-8); end
 if ~isfield(opt, 'verb'),  opt.verb  = 0;       end
