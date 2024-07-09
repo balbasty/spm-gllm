@@ -10,6 +10,7 @@ Y = spm_volarray(fnames);
 
 % -------------------------------------------------------------------------
 % Parse TE
+warning('off','MATLAB:structOnObject');
 TE = [];
 pattern = 'TR=(?<TR>.+)ms/TE=(?<TE>.+)ms/FA=(?<FA>.+deg)/';
 for i=1:numel(struct(A).vol)

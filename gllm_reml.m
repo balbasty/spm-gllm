@@ -131,7 +131,7 @@ end
 h = h / (M*N);
 
 % Initialize hyperparameter (minimize KL between C and s^2 * I)
-h = init_cov(QS,h,layout);
+h = init_cov(QS,h,layout,opt.verb);
 
 % Adapt mode for weighted gllm_fit
 if layout == 'D', opt.fit.mode = 'E';    % ESTATICS
@@ -156,11 +156,12 @@ if opt.verb >= 2
     fprintf([repmat('-', 1, 52) '\n']);
     fprintf('%10s | %10s | %10s | %11s |\n',...
             'it','   loss   ','   g''Hg   ','   time    ');
-    fprintf([repmat('-', 1, 52) '\n']);
+    fprintf([repmat('-', 1, 52)]);
 end
 
 % -------------------------------------------------------------------------
 % EM loop
+msg = '';
 for iter=1:opt.iter
     tic;
     
@@ -169,7 +170,7 @@ for iter=1:opt.iter
     C = spm_squeeze(sum(h .* QS, 1), 1);
     if layout == 'D',   A = 1./C(:);
     else,               A = spmb_sym_inv(C); end
-    % ---------------------------------------------------------------------
+    % --------------------------------------------------------------------
     % Run WNLS fit
     R = 0;
     if ~USE_SYM && layout ~= 'D', A = spmb_sym2full(A); end
@@ -236,16 +237,14 @@ for iter=1:opt.iter
     else,             loss = trace(A*R)  - spm_logdet(A); end
     ghg  = g'*dh;
     if opt.verb
-        fprintf('(reml) %3d | %10.4g | %10.4g | %10.4gs |', iter, loss/M, ghg/M, toc);
-        if opt.verb >= 2
-            fprintf('\n');
-        else
-            fprintf('\r');
-        end
+        if opt.verb >= 2, fprintf('\n');
+        else,             fprintf(repmat('\b',1,length(msg))); end
+        msg = sprintf('(reml) %3d | %10.4g | %10.4g | %10.4gs |', iter, loss/M, ghg/M, toc);
+        fprintf(msg);
     end
     if ghg < opt.tol, break; end
 end
-if opt.verb == 1, fprintf('\n'); end
+if opt.verb, fprintf('\n'); end
 
 
 % Reconstruct covariance
@@ -388,7 +387,7 @@ end
 % =========================================================================
 % Intialize hyper-parameters by minimizing the KL divergence between
 % the covariance sum(h.*Q,1) and the homoscedastic variance sigma2*eye
-function h = init_cov(Q,sigma2,layout)
+function h = init_cov(Q,sigma2,layout,verb)
 
 if layout == 'S', Q = spmb_sym2full(Q,'dim',2); end
 
@@ -412,7 +411,11 @@ end
 C = spm_squeeze(sum(h.*Q,1),1) * lam;
 if layout == 'D', L = sum(C)   - sum(log(C))   - size(C,1);
 else,             L = trace(C) - spm_logdet(C) - size(C,1); end
-fprintf('(dkl) %4d | %10.4g |\n', 0, L);
+
+if verb
+    msg = sprintf('(dkl) %4d | %10.4g |\n', 0, L);
+    fprintf(msg);
+end
 
 % -------------------------------------------------------------------------
 % Loop
@@ -471,8 +474,14 @@ for n=1:32
     end
     h  = h - dh; 
 
-    fprintf('(dkl) %4d | %10.4g | %10.4g |\n', n, L, ghg);
+    if verb
+        if verb >= 3,     fprintf('\n');
+        else,             fprintf(repmat('\b',1,length(msg))); end
+        msg = sprintf('(dkl) %4d | %10.4g | %10.4g |', n, L, ghg);
+        fprintf(msg);
+    end
     if ghg < 1e-8;  break; end 
 end
+if verb, fprintf('\n'); end
 
 end

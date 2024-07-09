@@ -125,6 +125,7 @@ else,     LW = 0; end
 L0 = inf;
 opt_diff.mode  = mode;
 opt_diff.accel = opt.accel;
+msg = '';
 for i=1:opt.iter
 
     % ---------------------------------------------------------------------
@@ -141,12 +142,10 @@ for i=1:opt.iter
     L = 0.5 * (L - LW);
     gain = (L0-L)/L0;
     if opt.verb
-        fprintf('%2d | %10.6g | gain = %g', i, L, gain);
-        if opt.verb >= 2
-            fprintf('\n');
-        else
-            fprintf('\r');
-        end
+        if opt.verb >= 2, fprintf('\n');
+        else,             fprintf(repmat('\b',1,length(msg))); end
+        msg = sprintf('%2d | %10.6g | gain = %g', i, L, gain);
+        fprintf(msg);
     end
     if gain < opt.tol
         break
@@ -187,9 +186,7 @@ for i=1:opt.iter
     % Eventual postprocessing (value clipping?)
     B = opt.proc(B);
 end
-if opt.verb == 1
-    fprintf('\n');
-end
+if opt.verb, fprintf('\n'); end
 
 % -------------------------------------------------------------------------
 % Return
