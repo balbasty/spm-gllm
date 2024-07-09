@@ -29,7 +29,7 @@ function y = spmb_matvec(A,x,varargin)
 % Yael Balbastre
 
 args = varargin;
-if ~isempty(args) >= 3 && isnumeric(args{1})
+if ~isempty(args) && isnumeric(args{1})
     dim     = args{1};
 else
     [dim,~] = spmb_parse_dim(args{:});
@@ -68,7 +68,7 @@ N = size(A, d+1);
 
 y = zeros([ylbatch M yrbatch 1], class(A(1)*x(1)));
 for n=1:N
-    A1 = reshape(A(Al{:},:,n,Ar{:}), [Albatch M Arbatch]);
+    A1 = reshape(A(Al{:},:,n,Ar{:}), [Albatch M Arbatch 1]);
     y = y + A1 .* x(xl{:},n,xr{:});
 end
 
@@ -105,7 +105,7 @@ x = reshape(x, [xlbatch N   xrbatch]);
 y = zeros([ylbatch M yrbatch 1], class(A(1)*x(1)));
 
 for n=1:N
-    A1 = reshape(A(Al{:},:,n,Ar{:}), [Albatch M Arbatch]);
+    A1 = reshape(A(Al{:},:,n,Ar{:}), [Albatch M Arbatch 1]);
     y = y + A1 .* x(xl{:},n,xr{:});
 end
 

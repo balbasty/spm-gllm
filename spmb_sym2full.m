@@ -7,6 +7,7 @@ function varargout = spmb_sym2full(varargin)
 % F - (K  x K)  Batch of full matrices
 %__________________________________________________________________________
 %
+% FORMAT spmb_sym2full(F,DIM)
 % FORMAT spmb_sym2full(...,'dim',DIM)
 %
 % DIM - (int) Index of first (>0: left, <0: right) nonbatch dimensions [1]
@@ -30,7 +31,14 @@ function varargout = spmb_sym2full(varargin)
 
 % Yael Balbastre
 
-[dim,args] = spmb_parse_dim(varargin{:});
+args = varargin;
+if nargin >= 2 && isnumeric(args{2})
+    dim     = args{2};
+    args(2) = [];
+else
+    [dim,args] = spmb_parse_dim(args{:});
+end
+
 if dim > 0
     [varargout{1:nargout}] = left_sym2full(dim,args{:});
 else

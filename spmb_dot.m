@@ -99,9 +99,13 @@ B = reshape(B, [Blbatch N Brbatch 1]);
 l = repmat({':'}, 1, length(Clbatch));
 r = repmat({':'}, 1, length(Crbatch));
 
-C = zeros([Clbatch 1 Crbatch 1], class(A(1)*B(1)));
-for n=1:N
-    C = C + A(l{:}, n, r{:}) .* B(l{:}, n,  r{:});
+if all(Albatch == Blbatch) && all(Arbatch == Brbatch)
+    C = dot(A,B,d);
+else
+    C = zeros([Clbatch 1 Crbatch 1], class(A(1)*B(1)));
+    for n=1:N
+        C = C + A(l{:}, n, r{:}) .* B(l{:}, n,  r{:});
+    end
 end
 
 end

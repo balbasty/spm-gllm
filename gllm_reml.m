@@ -4,11 +4,11 @@ function [C,B,h,P] = gllm_reml(Y,X,Q,opt)
 % FORMAT [C,B,h,P] = gllm_reml(Y,X,Q,opt)
 %__________________________________________________________________________
 %
-% Y - (N x M)     Observed data
+% Y - (N... x M)  Observed data 
 % X - (M x K)     Design matrix
 % Q - (J x M x M) Covariance basis set [default: diagonal elements]
 % C - (M x M)     Estimated covariance: C = sum(h*Q,1)
-% B - (N x K)     Expected model parameters
+% B - (N... x K)  Expected model parameters
 % h - (J x 1)     Parameters of the covariance in the basis set
 % P - (J x J)     Posterior precision of h
 %__________________________________________________________________________
@@ -40,7 +40,14 @@ function [C,B,h,P] = gllm_reml(Y,X,Q,opt)
 % where M2 = (M*(M+1))/2
 %__________________________________________________________________________
 
+
 % Yael Balbastre
+% -------------------------------------------------------------------------
+% USE_SYM uses compact representations for batches of symmetric matrices
+% It should use slighly less memory but is much slower.
+USE_SYM = false;
+if USE_SYM, residual_matrix = @residual_matrix_sym;
+else,       residual_matrix = @residual_matrix_full;  end
 
 % -------------------------------------------------------------------------
 % Options
@@ -57,8 +64,9 @@ if ~isfield(opt, 'hP'),    opt.hP    = exp(-8); end
 if ~isfield(opt, 'verb'),  opt.verb  = 0;       end
 if ~isfield(opt, 'fit'),   opt.fit   = struct;  end
 
-N = size(Y,1);
-M = size(Y,2);
+M = size(X,1);
+K = size(X,2);
+
 if isempty(Q)
     Q = zeros([M M]);
     for j=1:M
@@ -71,11 +79,26 @@ J = size(Q,1);
 % -------------------------------------------------------------------------
 % Checks sizes
 
-if size(X,1) ~= M                       ...
+Yshape = size(Y);
+if M == 1, Nd = ndims(Y); if Nd == 2 && size(Y,2) == 1, Nd = 1; end
+else,      Nd = ndims(Y)-1; end
+if Nd > 1
+    Nz = size(Y,Nd);
+else
+    Nz = 1;
+    M  = size(Y,2);
+end
+
+if size(Y,Nd+1) ~= M                       ...
 || ~any(size(Q,2) == [1 M (M*(M+1))/2]) ...
 || ~any(size(Q,3) == [1 M])
     error('Incompatible matrix sizes')
 end
+
+% Build a cell of handles that load slices on the fly
+Y0 = Y;
+if Nd > 1, Y = cellfun(@(n) (@() reshape(spm_subsref(Y0,n,Nd), [], M)), 1:Nd, 'UniformOutput', false);
+else,      Y = {@() Y0};  end
 
 % Layout of the covariance bases
 if ~ismatrix(Q),        layout = 'F';    % Full
@@ -84,9 +107,7 @@ else,                   layout = 'D';    % Compact diagonal
 end
 
 % If full, make symmetric (simplifies later steps)
-Q0 = Q;
-QS = Q;
-QF = Q;
+Q0 = Q; QS = Q; QF = Q;
 if layout == 'F'
     QS     = spmb_full2sym(Q,2);
     layout = 'S';
@@ -96,14 +117,23 @@ end
 
 % -------------------------------------------------------------------------
 % Initial fit + homoscedastic variance
-B = gllm_fit(Y,X,1,opt.fit);
-R = exp(B*X') - Y;
-h = dot(R(:),R(:)) / numel(R);
+B = cell(Nz,1);
+h = 0;
+N = 0;
+for z=1:Nz
+    Yz   = Y{z}();
+    Yz   = Yz(all(isfinite(Yz) & Yz ~= 0,2),:);
+    N    = N + size(Yz,1);
+    B{z} = gllm_fit(Yz,X,1,opt.fit);
+    R    = exp(B{z}*X') - Yz;
+    h    = h + dot(R(:),R(:));
+end
+h = h / (M*N);
 
 % Initialize hyperparameter (minimize KL between C and s^2 * I)
 h = init_cov(QS,h,layout);
 
-% Adap mode for weighted gllm_fit
+% Adapt mode for weighted gllm_fit
 if layout == 'D', opt.fit.mode = 'E';    % ESTATICS
 else,             opt.fit.mode = 'S';    % Compact symmetric 
 end
@@ -133,7 +163,6 @@ end
 % EM loop
 for iter=1:opt.iter
     tic;
-
     
     % ---------------------------------------------------------------------
     % Compute precision = WNLS weights
@@ -142,16 +171,24 @@ for iter=1:opt.iter
     else,               A = spmb_sym_inv(C); end
     % ---------------------------------------------------------------------
     % Run WNLS fit
-    opt.fit.init = B;
-    B = gllm_fit(Y,X,spm_unsqueeze(A,1),opt.fit);
-    R = residual_matrix(Y,X,B,A) / N;
+    R = 0;
+    if ~USE_SYM && layout ~= 'D', A = spmb_sym2full(A); end
+    for z=1:Nz
+        Yz           = Y{z}();
+        Yz           = Yz(all(isfinite(Yz) & Yz ~= 0,2),:);
+        opt.fit.init = B{z};
+        B{z}         = gllm_fit(Yz,X,spm_unsqueeze(A,1),opt.fit);
+        R            = R + residual_matrix(Yz,X,B{z},A);
+    end
+    if USE_SYM && layout ~= 'D', A = spmb_sym2full(A); end
+    R = R / N;
+
    
     % ---------------------------------------------------------------------
     % Utility matrices
     if layout == 'D',   P = diag(A) - (A .* R) .* A';
                         L = 2 * (A .* R) - eye(M);
-    else,               A = spmb_sym2full(A);
-                        P = A - (A * R) * A;
+    else,               P = A - (A * R) * A;
                         L = 2 * (A * R) - eye(M);
     end
 
@@ -213,42 +250,139 @@ if opt.verb == 1, fprintf('\n'); end
 
 % Reconstruct covariance
 C = sum(h .* Q0, 1);
+
+% Return model parameters
+if nargout > 1
+    B0 = B{1};
+    if Nd == 1
+        Yz           = Y{z}();
+        B            = zeros([size(Yz,1) K], class(B0));
+        msk          = all(isfinite(Yz) & Yz ~= 0,2);
+        Yz           = Yz(msk,:);
+        opt.fit.init = B0;
+        B(msk,:)     = gllm_fit(Yz,X,spm_unsqueeze(A,1),opt.fit);
+        B            = reshape(B, [Yshape(1:Nd) K]);
+    else
+        B  = zeros([Yshape(1:Nd) K], class(B{1}));
+        for z=1:Nz
+            Yz           = Y{z}();
+            Bz           = zeros([size(Yz,1) K], class(B0{z}));
+            msk          = all(isfinite(Yz) & Yz ~= 0,2);
+            Yz           = Yz(msk,:);
+            opt.fit.init = B0{z};
+            B0{z}         = [];
+            Bz(msk,:)    = gllm_fit(Yz,X,spm_unsqueeze(A,1),opt.fit);
+            Bz           = reshape(Bz, [Yshape(1:Nd-1) 1 K]);
+            B            = spm_subsasgn(B,Bz,z,Nd);
+        end
+    end
+end
+
 % Assign posterior precision to var P
 P = H;
 end
 
 % =========================================================================
-function R = residual_matrix(Y,X,B,A)
+function R = residual_matrix_sym(Y,X,B,A)
+
 M  = size(Y,2);
 K  = size(X,2);
+
+% Fitted signal
+% -------------
 Z  = exp(B*X');
-S  = spmb_sym_outer(Z, 'dim', 2);
+
+% 2nd moment in Z           (N x M*(M+1)/2)
+% ---------------
+ZZ = spmb_sym_outer(Z,'dim',2);
+
+% Precision about B         (N x K*(K+1)/2)
+% -----------------
+S  = ZZ;
 A  = spm_unsqueeze(A,1);
-if size(A,2) == M
-    S(:,1:M) = S(:,1:M) .* A;
-else
-    S = S .* A;
-end
-S  = spmb_sym_outer(spm_unsqueeze(X',1), S, 'dim', 2); % Precision about B
+if size(A,2) == M, S(:,1:M) = S(:,1:M) .* A;
+else,              S = S .* A;  end
+S  = spmb_sym_outer(spm_unsqueeze(X',1), S, 'dim', 2);
+
+% Uncertainty about B       (N x K*(K+1)/2)
+% -------------------
 S(:,1:K) = S(:,1:K) + max(abs(S(:,1:K)),[],2) * 1e-8;
-S  = spmb_sym_inv(S, 'dim', 2);                        % Uncertainty about B
-if false
-S  = spmb_sym_outer(spm_unsqueeze(X,1), S, 'dim', 2);  % Uncertainty about BX'
-else
-% This is faster than sym_outer (still unsure why?)
-S = spmb_sym2full(S,'dim',2);
-S = spmb_matmul(spmb_matmul(spm_unsqueeze(X,1),S,2), spm_unsqueeze(X',1),2);
-S = spmb_full2sym(S,'dim',2);
-end
+S  = spmb_sym_inv(S, 'dim', 2);
+
+% Uncertainty about BX'     (N x M*(M+1)/2)
+% ---------------------
+S  = spmb_sym_outer(spm_unsqueeze(X,1), S, 'dim', 2);
+
+% Expected moments          (M x M)
+% ----------------
 S  = exp(S);
-ZZ = spmb_sym_outer(Z,'dim',2);                        % \hat{z} * \hat{z}'
-ZZ = spm_squeeze(dot(ZZ, S, 1), 1);                    % \sum_n E[z(n) * z(n)']
+ZZ = spm_squeeze(dot(ZZ, S, 1), 1);                % E[Z'*Z]
 ZZ = spmb_sym2full(ZZ);
-YZ = Z .* sqrt(S(:,1:M));                              % E[z(n)]
-YZ = spmb_dot(spm_unsqueeze(YZ,2), Y, 1,'squeeze');    % \sum_n E[z(n) * y(n)']
+YZ = Z .* sqrt(S(:,1:M));                          % E[Z]
+YZ = Y'*YZ;                                        % E[Z'*Y]
+
+% Build residual matrix     (M x M)
+% ---------------------
+% R = E[(Z-Y)' * (Z-Y)]
 YZ = YZ + YZ';
 YY = Y' * Y;
 R  = ZZ + YY - YZ;
+end
+
+% =========================================================================
+function R = residual_matrix_full(Y,X,B,A)
+
+M  = size(Y,2);
+K  = size(X,2);
+dM = spm_diagind(M);
+A  = spm_unsqueeze(A,1);
+
+% Fitted signal
+% -------------
+Z  = exp(B*X');
+
+% 2nd moment in Z           (N x M x M)
+% ---------------
+ZZ = spm_unsqueeze(Z,2) .* spm_unsqueeze(Z,3);
+
+% Precision about B         (N x K x K)
+% -----------------
+S = ZZ;
+if size(A,2) == M, S(:,dM) = S(:,dM) .* A;
+else,              S       = S       .* A;  end
+S = outer(S,X');
+
+% Uncertainty about B       (N x K x K)
+% -------------------
+S        = spmb_full2sym(S,2);
+S(:,1:K) = S(:,1:K) + max(abs(S(:,1:K)),[],2) * 1e-8;
+S        = spmb_sym_inv(S,2);
+S        = spmb_sym2full(S,2);
+
+% Uncertainty about BX'     (N x M x M)
+% ---------------------
+S = outer(S,X);
+
+% Expected moments          (M x M)
+% ----------------
+S  = exp(S);
+ZZ = spm_squeeze(dot(ZZ, S, 1), 1);                % E[Z'*Z]
+YZ = Z .* sqrt(S(:,spm_diagind(M)));               % E[Z]
+YZ = Y'*YZ;                                        % E[Z'*Y]
+
+% Build residual matrix     (M x M)
+% ---------------------
+% R = E[(Z-Y)' * (Z-Y)]
+YZ = YZ + YZ';
+YY = Y' * Y;
+R  = ZZ + YY - YZ;
+end
+
+function XAX = outer(A,X)
+Xt  = spm_unsqueeze(X',1);
+X   = spm_unsqueeze(X,1);
+XA  = spmb_matmul(X,A,2);
+XAX = spmb_matmul(XA,Xt,2);
 end
 
 % =========================================================================
