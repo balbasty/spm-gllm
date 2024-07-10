@@ -235,6 +235,7 @@ for iter=1:opt.iter
     A    = spm_squeeze(A,1);
     if layout == 'D', loss = trace(A.*R) - sum(log(A));
     else,             loss = trace(A*R)  - spm_logdet(A); end
+    loss = loss + (h - hE)'*hP*(h - hE);
     ghg  = g'*dh;
     if opt.verb
         if opt.verb >= 2, fprintf('\n');

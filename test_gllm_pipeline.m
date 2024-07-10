@@ -1,8 +1,11 @@
-FOLDER = '/Users/balbasty/localdata/antoine/ExampleDataITS';
+FOLDER  = '/Users/balbasty/localdata/antoine/ExampleDataITS';
+VARIANT = 'Standard';   % (ITS|Standard)
+REP     = 'rep3';       % (rep1|rep2|rep3)
+FIT     = 'ols';        % (nlreml|nlls|ols)
 
 % -------------------------------------------------------------------------
 % Get files
-fnames = spm_select('FPList',[FOLDER '/ITS/rep1/'],'.nii$');
+fnames = spm_select('FPList',[FOLDER '/' VARIANT '/' REP '/'],'.nii$');
 
 % -------------------------------------------------------------------------
 % Build virtual array of observations
@@ -28,34 +31,69 @@ M = size(X,1);
 K = size(X,2);
 
 % -------------------------------------------------------------------------
-% Estimate mask of voxels to keep
-MSK = gllm_reml_mask(A,X);
-
-% -------------------------------------------------------------------------
-% Collect data in the mask of ReML
-YM  = zeros(numel(MSK),size(Y,4));
-off = 0;
-for z=1:size(Y,3)
-    Y1  = reshape(Y(:,:,z,:),[],M);
-    M1  = reshape(MSK(:,:,z), [], 1);
-    Y1  = reshape(Y1(M1,:,:), [], M);
-    chk = size(Y1,1);
-    YM(off+1:off+chk,:) = Y1;
-    off = off + chk;
+% ReML estimate of covariance
+if strcmpi(FIT, 'nlreml')
+    % ---------------------------------------------------------------------
+    % Estimate mask of voxels to keep
+    MSK = gllm_reml_mask(A,X);
+    
+    % ---------------------------------------------------------------------
+    % Collect data in the mask of ReML
+    YM  = zeros(numel(MSK),size(Y,4));
+    off = 0;
+    for z=1:size(Y,3)
+        Y1  = reshape(Y(:,:,z,:),[],M);
+        M1  = reshape(MSK(:,:,z), [], 1);
+        Y1  = reshape(Y1(M1,:,:), [], M);
+        chk = size(Y1,1);
+        YM(off+1:off+chk,:) = Y1;
+        off = off + chk;
+    end
+    
+    % ---------------------------------------------------------------------
+    % Estimate covariance
+    C = gllm_reml(YM,X,Q,struct('verb',2));
+else
+    C = 1;
 end
-
-% -------------------------------------------------------------------------
-% Estimate covariance
-C = gllm_reml(YM,X,Q,struct('verb',2));
 
 % -------------------------------------------------------------------------
 % Run complete fit
-B = zeros([size(Y,1) size(Y,2) size(Y,3) K]);
-for z=1:size(Y,3)
-    Y1 = reshape(Y(:,:,z,:), [], M);
-    B1 = gllm_fit(Y1,X,1./C,struct('verb',1));
-    B(:,:,z,:) = reshape(B1, [size(Y,1) size(Y,2) 1 K]);
+if strcmpi(FIT(1:2), 'nl')
+    B = zeros([size(Y,1) size(Y,2) size(Y,3) K]);
+    for z=1:size(Y,3)
+        Y1 = reshape(Y(:,:,z,:), [], M);
+        B1 = gllm_fit(Y1,X,1./C,struct('verb',1));
+        B(:,:,z,:) = reshape(B1, [size(Y,1) size(Y,2) 1 K]);
+    end
+else
+    B = zeros([size(Y,1) size(Y,2) size(Y,3) K]);
+    for z=1:size(Y,3)
+        Y1 = reshape(Y(:,:,z,:), [], M);
+        B1 = gllm_logfit(Y1,X,1,struct('verb',1));
+        B(:,:,z,:) = reshape(B1, [size(Y,1) size(Y,2) 1 K]);
+    end
 end
+
+% -------------------------------------------------------------------------
+% Save
+ninp               = nifti(fnames(1,:));
+
+nout               = ninp;
+nout.dat.fname     = [FOLDER '/' FIT '_' VARIANT '_' REP '_S.nii'];
+nout.dat.dtype     = 'FLOAT32';
+nout.dat.scl_slope = 1;
+nout.dat.scl_inter = 0;
+create(nout);
+nout.dat(:,:,:)    = exp(B(:,:,:,1));
+
+nout               = ninp;
+nout.dat.fname     = [FOLDER '/' FIT '_' VARIANT '_' REP '_R2star.nii'];
+nout.dat.dtype     = 'FLOAT32';
+nout.dat.scl_slope = 1;
+nout.dat.scl_inter = 0;
+create(nout);
+nout.dat(:,:,:)    = B(:,:,:,2) * 1000;
 
 % -------------------------------------------------------------------------
 % Plot
@@ -63,7 +101,7 @@ figure
 subplot(1,3,1)
 imagesc(exp(B(:,:,64,1)));
 subplot(1,3,2)
-imagesc(B(:,:,64,2), [0 .1]);
+imagesc(B(:,:,64,2)*1000, [0 100]);
 subplot(1,3,3)
 bar(C)
 
