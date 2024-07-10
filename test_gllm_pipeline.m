@@ -16,8 +16,8 @@ Y = spm_volarray(fnames);
 warning('off','MATLAB:structOnObject');
 TE = [];
 pattern = 'TR=(?<TR>.+)ms/TE=(?<TE>.+)ms/FA=(?<FA>.+deg)/';
-for i=1:numel(struct(A).vol)
-    vol1 = struct(A).vol(i);
+for i=1:numel(struct(Y).vol)
+    vol1 = struct(Y).vol(i);
     meta = regexp(vol1.descrip, pattern, 'names');
     TE = [TE str2num(meta.TE)]; 
 end
@@ -59,20 +59,14 @@ end
 
 % -------------------------------------------------------------------------
 % Run complete fit
-if strcmpi(FIT(1:2), 'nl')
-    B = zeros([size(Y,1) size(Y,2) size(Y,3) K]);
-    for z=1:size(Y,3)
-        Y1 = reshape(Y(:,:,z,:), [], M);
-        B1 = gllm_fit(Y1,X,1./C,struct('verb',1));
-        B(:,:,z,:) = reshape(B1, [size(Y,1) size(Y,2) 1 K]);
-    end
-else
-    B = zeros([size(Y,1) size(Y,2) size(Y,3) K]);
-    for z=1:size(Y,3)
-        Y1 = reshape(Y(:,:,z,:), [], M);
-        B1 = gllm_logfit(Y1,X,1,struct('verb',1));
-        B(:,:,z,:) = reshape(B1, [size(Y,1) size(Y,2) 1 K]);
-    end
+if strcmpi(FIT(1:2), 'nl'), fit = @gllm_fit;
+else,                       fit = @gllm_logfit; end
+
+B = zeros([size(Y,1) size(Y,2) size(Y,3) K]);
+for z=1:size(Y,3)
+    Y1 = reshape(Y(:,:,z,:), [], M);
+    B1 = fit(Y1,X,1./C,struct('verb',1));
+    B(:,:,z,:) = reshape(B1, [size(Y,1) size(Y,2) 1 K]);
 end
 
 % -------------------------------------------------------------------------
