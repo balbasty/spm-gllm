@@ -16,9 +16,11 @@ function varargout = spmb_sym2full(varargin)
 %           H should have shape      (K2 x ...)
 %           F   will have shape   (K x K x ...)
 %
-%      * If `-1`:
-%           H should have shape (... x K2)
-%           F   will have shape (... x K x K)
+%      * If `2`:
+%           H should have shape   (B x    K2 x ...)
+%           F   will have shape   (B x K x K x ...)
+%
+%      * Etc.
 %__________________________________________________________________________
 %
 % A symmetric matrix stored in flattened form contains the diagonal first,
@@ -38,12 +40,7 @@ if nargin >= 2 && isnumeric(args{2})
 else
     [dim,args] = spmb_parse_dim(args{:});
 end
-
-if dim > 0
-    [varargout{1:nargout}] = left_sym2full(dim,args{:});
-else
-    [varargout{1:nargout}] = right_sym2full(dim,args{:});
-end
+[varargout{1:nargout}] = left_sym2full(dim,args{:});
 
 end
 
@@ -69,8 +66,6 @@ end
 
 % =========================================================================
 function  F = left_sym2full(d,H)
-asrow       = isrow(H);
-if asrow, H = reshape(H, size(H,2), size(H,1)); end
 K2          = size(H,d);
 K           = findK(K2);
 i           = mapidx(K);
@@ -81,22 +76,4 @@ l           = repmat({':'}, 1, length(lbatch));
 F           = zeros([lbatch K*K rbatch 1]);
 F(l{:},:,:) = H(l{:},i,:);
 F           = reshape(F, [lbatch K K rbatch]);
-if asrow, F = reshape(F, size(F,2), size(F,1)); end
-end
-
-% =========================================================================
-function  F = right_sym2full(d,H)
-ascol       = iscolumn(H);
-if ascol, H = reshape(H, size(H,2), size(H,1)); end
-K2          = size(H,ndims(H)+d+1);
-K           = findK(K2);
-i           = mapidx(K);
-shape       = size(H);
-lbatch      = shape(1:end+d);
-rbatch      = shape(end+d+2:end);
-l           = repmat({':'}, 1, length(lbatch));
-F           = zeros([lbatch K*K rbatch]);
-F(l{:},:,:) = H(l{:},i,:);
-F           = reshape(F, [lbatch K K rbatch]);
-if ascol, F = reshape(F, size(F,2), size(F,1)); end
 end
