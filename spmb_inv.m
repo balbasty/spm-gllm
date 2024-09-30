@@ -31,9 +31,9 @@ function varargout = spmb_inv(varargin)
 
 % Parse "dim" keyword argument
 args = varargin;
-if nargin >= 3 && isnumeric(args{3})
-    dim     = args{3};
-    args(3) = [];
+if nargin >= 2 && isnumeric(args{2})
+    dim     = args{2};
+    args(2) = [];
 else
     [dim,args] = spmb_parse_dim(args{:});
 end

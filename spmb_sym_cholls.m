@@ -55,9 +55,9 @@ end
 % =========================================================================
 function x = left_cholls(d,R,y)
 
-asrow = isrow(y) && isvector(R);
-if isrow(R), R = reshape(R, size(R,2), size(R,1)); end
-if isrow(y), y = reshape(y, size(y,2), size(y,1)); end
+asrow = isrow(y) && isvector(R) && d == 1;
+if asrow && isrow(R), R = reshape(R, size(R,2), size(R,1)); end
+if asrow && isrow(y), y = reshape(y, size(y,2), size(y,1)); end
 
 [Rlbatch,N2,Rrbatch] = spmb_splitsize(R,d,1);
 [ylbatch,N ,yrbatch] = spmb_splitsize(y,d,1);

@@ -174,10 +174,31 @@ if opt.accel ~= 1
     if Cb == 1
         AFR = sum(AFR,3);
     end
-    H = H + AFR * (1 - opt.accel);
+    if Cb == 1
+        H = H + AFR * (1 - opt.accel);
+    else
+        idx = mapidx(K*C);
+        for c=1:Cb
+            kk = K+1;
+            for k=1:K
+                H(:,(c-1)*C+k) = H(:,(c-1)*C+k) + AFR(:,k,c) * (1 - opt.accel);
+                for l=k+1:K
+
+                    H(:,(c-1)*C+k) = H(:,(c-1)*C+k) + abs(AFR(:,kk,c)) * (1 - opt.accel);
+                    H(:,(c-1)*C+l) = H(:,(c-1)*C+l) + abs(AFR(:,kk,c)) * (1 - opt.accel);
+
+                    % cc = idx((c-1)*C+k,(c-1)*C+l);
+                    % H(:,cc) = H(:,cc) + AFR(:,kk,c) * (1 - opt.accel);
+                    % H(:,cc) = H(:,cc) + AFR(:,kk,c) * (1 - opt.accel);
+
+                    kk = kk + 1;
+                end
+            end
+        end
+    end
 end
 
-if hmode == 'F', H = spmb_sym2full(H); end
+if hmode == 'F', H = spmb_sym2full(H,2); end
 
 % =========================================================================
 function H = smart_hessian(W,F,X,wmode,Cb)
@@ -305,12 +326,24 @@ elseif Cb > 1 && wmode ~= 'D'
     end
 end
 if Cb > 1
-    H = spmb_full2sym(reshape(H, [], KC, KC),'dim',2); 
-    H = reshape(H, [], K, C, K, C);
+    H = spmb_full2sym(reshape(H, [], KC, KC),'dim',2);
 end
 
 % =========================================================================
 function F = smart_gradient(W,F,wmode)
 if wmode == 'D', F = W .* F;
 else,            F = spm_squeeze(spmb_sym_rmatmul(spm_unsqueeze(F,2),W,'dim',2),2);
+end
+
+% =========================================================================
+function idx = mapidx(K)
+idx = zeros(K, 'uint64');
+k = K+1;
+for i=1:K
+    idx(i,i) = i;
+    for j=i+1:K 
+        idx(i,j) = k;
+        idx(j,i) = k;
+        k = k + 1;
+    end
 end

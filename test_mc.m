@@ -1,3 +1,4 @@
+clear
 PLOT = false;
 B0   = 1;
 
@@ -6,20 +7,39 @@ B0   = 1;
 T = 0.1:0.1:3;              % Sampled time points
 O = ones(1, length(T));     
 Z = zeros(1, length(T));
-X = cat(3, ...              % Design matrix
-    [O' Z' Z' Z' Z' Z' Z' Z' -T' Z'
-     Z' Z' O' Z' Z' Z' Z' Z' -T' Z'
-     Z' Z' Z' Z' O' Z' Z' Z' -T' Z'
-     Z' Z' Z' Z' Z' Z' O' Z' -T' Z'], ...          
-    [Z' O' Z' Z' Z' Z' Z' Z' Z' -T'
-     Z' Z' Z' O' Z' Z' Z' Z' Z' -T'
-     Z' Z' Z' Z' Z' O' Z' Z' Z' -T'
-     Z' Z' Z' Z' Z' Z' Z' O' Z' -T']);
 
-M = size(X,1);
-K = size(X,2);
+if false
+    Cb = 1;
 
-BB = [2*([0.3 0.7]) 2*([0.7 0.3]) 2*[0.6 0.4] 2*[0.5 0.5] [1 0.2]];
+    X = cat(3, ...              % Design matrix
+        [O' Z' Z' Z' Z' Z' Z' Z' -T' Z'
+         Z' Z' O' Z' Z' Z' Z' Z' -T' Z'
+         Z' Z' Z' Z' O' Z' Z' Z' -T' Z'
+         Z' Z' Z' Z' Z' Z' O' Z' -T' Z'], ...          
+        [Z' O' Z' Z' Z' Z' Z' Z' Z' -T'
+         Z' Z' Z' O' Z' Z' Z' Z' Z' -T'
+         Z' Z' Z' Z' Z' O' Z' Z' Z' -T'
+         Z' Z' Z' Z' Z' Z' Z' O' Z' -T']);
+    
+    M = size(X,1);
+    K = size(X,2);
+    
+    BB = [2*([0.3 0.7]) 2*([0.7 0.3]) 2*[0.6 0.4] 2*[0.5 0.5] [1 0.2]];
+else
+    Cb = 2;
+
+    X = [O' Z' Z' Z' -T'
+         Z' O' Z' Z' -T'
+         Z' Z' O' Z' -T'
+         Z' Z' Z' O' -T'];
+
+    M = size(X,1);
+    K = size(X,2);
+    
+    BB(:,:,1) = [2*0.3 2*0.7 2*0.6 2*0.5 1];
+    BB(:,:,2) = [2*0.7 2*0.3 2*0.4 2*0.5 0.2];
+end
+
 SD = 0.1;
 
 BX = spm_unsqueeze(BB,2).*spm_unsqueeze(X,1);
@@ -52,7 +72,7 @@ B1 = 0;
 B2 = 0;
 for b=1:B0
     Y  = Y0 + SD * randn(size(Y0));
-    B = gllm_fit(Y,X,1,struct('verb',2));
+    B = gllm_fit(Y,X,1,struct('verb',2,'mc',Cb));
     B  = B(:);
     B1 = B1 + B;
     B2 = B2 + B'*B;

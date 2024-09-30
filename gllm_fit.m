@@ -1,4 +1,4 @@
-function [B,F] = gllm_fit(Y,X,W,opt)
+function [B,F,L] = gllm_fit(Y,X,W,opt)
 % Nonlinear fit of a (sum of) loglinear model(s).
 %
 % FORMAT [B,F] = gllm_fit(Y,X,W,opt)
@@ -93,7 +93,7 @@ USE_SPM_FIELD = true;
 % Options
 if nargin < 3,             W         = 1;        end
 if nargin < 4,             opt       = struct;   end
-if ~isfield(opt, 'iter'),  opt.iter  = 64;       end
+if ~isfield(opt, 'iter'),  opt.iter  = 32;       end
 if ~isfield(opt, 'mode'),  opt.mode  = 'auto';   end
 if ~isfield(opt, 'proc'),  opt.proc  = @(B) B;   end
 if ~isfield(opt, 'init'),  opt.init  = 'logfit'; end
@@ -120,12 +120,14 @@ if size(Y,2) ~= M                       ...
 || ~any(size(W,1) == [1 N])             ...
 || ~any(size(W,2) == [1 M (M*(M+1))/2]) ...
 || ~any(size(W,3) == [1 M])             ...
-|| ~any(Cb        == [1 Cx])
+|| ~any(Cb        == [1 C])             ...
+|| ~any(Cx        == [1 C])
     error('Incompatible matrix sizes')
 end
 
 % If multi-compartment, replace default `gllm_diff` with `gllm_mc_diff`
-if C ~= 1, gllm_diff = @gllm_mc_diff; end
+if C ~= 1, model_diff = @gllm_mc_diff;
+else,      model_diff = @gllm_diff; end
 
 % -------------------------------------------------------------------------
 % Set precision and Hessian layout
@@ -152,7 +154,7 @@ end
 
 % -------------------------------------------------------------------------
 % Initialize model parameters
-B = init_params(Y,X,W,Cb,opt.init,type);
+B = init_params(Y,X,W,Cb,opt.init,type,opt);
 B = opt.proc(B);
 
 % -------------------------------------------------------------------------
@@ -169,12 +171,17 @@ opt_diff.mode  = mode;
 opt_diff.accel = opt.accel;
 msg = '';
 L0  = inf;
+LL0 = inf;
+D   = [];
+alpha = 1e-3;
+beta  = ones(N,1);
 for i=1:opt.iter
 
     % ---------------------------------------------------------------------
     % Compute derivatives
-    [F,G,H] = gllm_diff(Y,X,B,W,opt_diff);
+    [F,G,H] = model_diff(Y,X,B,W,opt_diff);
 
+    B = reshape(B, N, []);
     G = reshape(G, N, []);
     if     mode == 'F', H = reshape(H, N, K*Cb, K*Cb);
     elseif mode == 'S', H = reshape(H, N, []); end
@@ -182,28 +189,52 @@ for i=1:opt.iter
     % ---------------------------------------------------------------------
     % Check for early stopping
     switch wmode
-    case 'D', L = mean(mean(W.*(Y-F).^2));
-    case 'S', L = mean(spmb_sym_inner(Y-F, W, 'dim', 2)) / M;
-    case 'F', L = mean(mean((Y-F) .* spmb_matvec(W,Y-F,2)));
+    case 'D', L = sum(W.*(Y-F).^2,2);
+    case 'S', L = spmb_sym_inner(Y-F, W, 'dim', 2);
+    case 'F', L = sum((Y-F) .* spmb_matvec(W,Y-F,2),2);
     end
-    L = 0.5 * (L - LW);
-    gain = (L0-L)/L0;
+
+    L    = L / M;
+    beta(L>L0) = beta(L>L0) *  0.5;
+    beta(L<L0) = beta(L<L0) * 1.01;
+
+    LL   = mean(L);
+    gain = (LL0-LL)/LL0;
+    L0   = L;
+    LL0  = LL;
+
+    LL = 0.5 * (LL - LW);
     if opt.verb
         if opt.verb >= 2, fprintf('\n');
         else,             fprintf(repmat('\b',1,length(msg))); end
-        msg = sprintf('%2d | %10.6g | gain = %g', i, L, gain);
+        msg = sprintf('%2d | %10.6g | gain = %g', i, LL, gain);
         fprintf(msg);
     end
-    if gain < opt.tol
+    if abs(gain) < opt.tol
         break
     end
-    L0 = L;
 
+    % ---------------------------------------------------------------------
+    % Marquardt-style loading of the Hessian
+    if mode == 'F', idx = spm_diagind(K*Cb);
+    else,           idx = 1:K*Cb;
+    end
+    H(:,idx) = H(:,idx) + max(abs(H(:,idx)),[],2) .* alpha;
+
+    % ---------------------------------------------------------------------
+    % Rescale problem to make it (hopefully) easier for solvers
+    f = max(max(max(abs(H),[],2),[],3),max(abs(G),[],2));
+    G = G ./ f;
+    H = H ./ f;
+
+    G = G .* beta;
     switch mode
     % ---------------------------------------------------------------------
     % Newton-Raphson with ESTATICS solver
     case 'E'
-        B = B - spmb_estatics_solve(H, G, 'dim', 2);
+        D = spmb_estatics_solve(H, G, 'dim', 2);
+        B = B - D;
+        D = 0.5 * dot(G,D,2);
 
     % ---------------------------------------------------------------------
     % Newton-Raphson with symmetric solver
@@ -211,23 +242,33 @@ for i=1:opt.iter
         if USE_SPM_FIELD
             % solve with spm_field solver
             T = class(B);
-            H = single(reshape(H, 1, 1, N, []));            
-            G = single(reshape(G, 1, 1, N, []));
-            B = B - cast(reshape(spm_field(H, G, [1 1 1 0 0 0 1 1]), N, []),T);
+            HF = single(reshape(H, 1, 1, N, []));            
+            GF = single(reshape(G, 1, 1, N, []));
+            D = cast(reshape(spm_field(HF, GF, [1 1 1 0 0 0 1 1]), N, []),T);
         else
             % slower version that uses a batched cholesky decomposition
-            B = B - spmb_sym_solve(H, G, 'dim', 2);
+            D = spmb_sym_solve(H, G, 'dim', 2);
         end
+        B = B - D;
+        D = 0.5 * dot(G,D,2);
 
     % ---------------------------------------------------------------------
     % Newton-Raphson with generic solver
     otherwise
-        B = zeros([N K], class(X));
-        parfor m=1:N
-            B(m,:) = B(m,:) - G(m,:) / spm_squeeze(H(m,:,:),1);
+        warnstate = warning;
+        warning('off','MATLAB:nearlySingularMatrix');
+        warning('off','MATLAB:illConditionedMatrix');
+        warning('off','MATLAB:singularMatrix');
+        D = zeros(N,1);
+        for m=1:N
+            D1     = G(m,:) / spm_squeeze(H(m,:,:),1);
+            B(m,:) = B(m,:) - D1;
+            D(m)   = G(m,:) * D1' * 0.5;
         end
+        warning(warnstate);
 
     end
+
 
     % ---------------------------------------------------------------------
     % Eventual postprocessing (value clipping?)
@@ -235,6 +276,11 @@ for i=1:opt.iter
     B = opt.proc(B);
 end
 if opt.verb, fprintf('\n'); end
+
+% ---------------------------------------------------------------------
+% Eventual postprocessing (value clipping?)
+B = reshape(B, [N K Cb]);
+B = opt.proc(B);
 
 % -------------------------------------------------------------------------
 % Return
@@ -246,8 +292,9 @@ if nargout > 1
 end
 
 % =========================================================================
-function B = init_params(Y,X,W,Cb,B0,type)
+function B = init_params(Y,X,W,Cb,B0,type,opt)
 N  = size(Y,1);
+M  = size(Y,2);
 K  = size(X,2);
 Cx = size(X,3);
 C  = max(Cx,Cb);
@@ -267,7 +314,7 @@ if ischar(B0) && strcmpi(B0, 'logfit')
     % --------------------------------
     % Log-linear fit
     if C == 1
-        B = gllm_logfit(Y,X,W,struct('mode',mode,'proc',opt.proc));
+        B = gllm_logfit(Y,X,W,struct('proc',opt.proc));
         return
     end
 
@@ -287,17 +334,23 @@ if ischar(B0) && strcmpi(B0, 'logfit')
     end
 
     for cc=1:size(XX,3)
-        X1 = XX{cc};
-        B1 = gllm_logfit(Y/C,X1,W,struct('mode',mode,'proc',opt.proc));
+        X1 = XX(:,:,cc);
+        B1 = gllm_logfit(Y/C,X1,W);
         % Compute posterior covariance
-        if wmode == 'D'
+        if (size(W,2) == 1 || size(W,2) == M) && size(W,3) == 1
             S = spm_unsqueeze(X1',1) .* sqrt(spm_unsqueeze(W,2));
-            S = spmb_outer(S,'dim',2);
+            S = spmb_sym_outer(S,'dim',2);
         else
             S = spmb_outer(spm_unsqueeze(X1',1),W,'dim',2);
         end
         % Cholesky decomposition
-        S = spmb_chol(spmb_sym_inv(S,'dim',2),'dim',2);
+        S(1:K) = S(1:K) + 0.1*M;
+        S = spmb_sym2full(S,'dim',2);
+        S = spmb_inv(S,'dim',2);
+        S = spmb_full2sym(S,'dim',2);
+        S = spmb_sym_chol(S);
+
+        % S = spmb_sym_chol(spmb_sym_inv(S,'dim',2),'dim',2);
             
         % Sample from multivariate normal
         if Cb==Cx, crange=cc; else, crange=1:Cb; end
@@ -313,7 +366,39 @@ end
 % Fill with same value + spread
 % (otherwise sum is not separable)
 B = zeros([N K Cb], type);
-B(:,:,:) = B0;
+B(:,:,:) = B(:,:,:) + B0;
 if size(B0,3) == 1 && Cb > 1
     B = B + randn([N K Cb], type);
+end
+
+% -------------------------------------------------------------------------
+% Function that plots the quadratic approximation in a voxel
+% Used for debugging purposes
+function plotapprox(delta,B,G,H,diff)
+
+deltas = linspace(-delta,delta,128);
+
+K = size(B,2);
+C = size(B,3);
+
+i = 1;
+for c=1:C
+for k=1:K
+    LL = [];
+    for delta=deltas
+        B1 = B;
+        B1(:,k,c) = B1(:,k,c) + delta;
+        LL = [LL diff(B1)];
+    end
+    B1 = B(:,k,c) + deltas;
+    LB = diff(B);
+    LB = LB + G(:,k,c) * (B1 - B(:,k,c));
+    LB = LB + 0.5 * H(:,k,c,k,c) * (B1 - B(:,k,c)).^2;
+    subplot(C,K,i)   
+    plot(B1,LL);
+    hold on
+    plot(B1,LB,'--');
+    hold off
+    i = i+1;
+end
 end
