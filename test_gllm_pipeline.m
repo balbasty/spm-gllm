@@ -1,7 +1,7 @@
 FOLDER  = '/Users/balbasty/localdata/antoine/ExampleDataITS';
 VARIANT = 'Standard';   % (ITS|Standard)
-REP     = 'rep3';       % (rep1|rep2|rep3)
-FIT     = 'ols';        % (nlreml|nlls|ols)
+REP     = 'rep1';       % (rep1|rep2|rep3)
+FIT     = 'nlreml';     % (nlreml|nlls|ols)
 
 % -------------------------------------------------------------------------
 % Get files
@@ -35,11 +35,12 @@ K = size(X,2);
 if strcmpi(FIT, 'nlreml')
     % ---------------------------------------------------------------------
     % Estimate mask of voxels to keep
-    MSK = gllm_reml_mask(A,X);
+    % > To speed things up, use best 2^16 voxels (approx.)
+    MSK = gllm_reml_mask(Y,X,2^16);
     
     % ---------------------------------------------------------------------
     % Collect data in the mask of ReML
-    YM  = zeros(numel(MSK),size(Y,4));
+    YM  = zeros(sum(MSK(:)),size(Y,4));
     off = 0;
     for z=1:size(Y,3)
         Y1  = reshape(Y(:,:,z,:),[],M);
@@ -49,10 +50,10 @@ if strcmpi(FIT, 'nlreml')
         YM(off+1:off+chk,:) = Y1;
         off = off + chk;
     end
-    
+
     % ---------------------------------------------------------------------
     % Estimate covariance
-    C = gllm_reml(YM,X,Q,struct('verb',2));
+    [C,~,h] = gllm_reml(YM,X,Q,struct('verb',2));
 else
     C = 1;
 end
