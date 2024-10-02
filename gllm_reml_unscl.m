@@ -1,14 +1,20 @@
-function [C,B,h,P] = gllm_reml(Y,X,Q,opt)
+function [C,B,h,P] = gllm_reml_unscl(Y,X,Q,opt)
 % ReML estimate of covariance in a log-linear model
+%
+% this variant does not rescale observations (per voxel) to match a target
+% residual variance. In other words, it assumes that all residuals have
+% the same magnitude across voxels.
+% It also uses a memory efficient implementation that supports large
+% memory-mapped volumes.
 %
 % FORMAT [C,B,h,P] = gllm_reml(Y,X,Q,opt)
 %__________________________________________________________________________
 %
-% Y - (N x M)     Observed data 
+% Y - (N... x M)  Observed data 
 % X - (M x K)     Design matrix
 % Q - (J x M x M) Covariance basis set [default: diagonal elements]
 % C - (M x M)     Estimated covariance: C = sum(h*Q,1)
-% B - (N x K)     Expected model parameters
+% B - (N... x K)  Expected model parameters
 % h - (J x 1)     Parameters of the covariance in the basis set
 % P - (J x J)     Posterior precision of h
 %__________________________________________________________________________
@@ -58,16 +64,12 @@ if ~isfield(opt, 'lev'),   opt.lev   = 0;       end
 if ~isfield(opt, 'mqd'),   opt.mqd   = 0;       end
 if ~isfield(opt, 'accel'), opt.accel = 0;       end
 if ~isfield(opt, 'iter'),  opt.iter  = 128;     end
-if ~isfield(opt, 'tol'),   opt.tol   = eps;     end
+if ~isfield(opt, 'tol'),   opt.tol   = eps;       end
 if ~isfield(opt, 'hE'),    opt.hE    = 0;       end
 if ~isfield(opt, 'hP'),    opt.hP    = exp(-8); end
 if ~isfield(opt, 'verb'),  opt.verb  = 0;       end
 if ~isfield(opt, 'fit'),   opt.fit   = struct;  end
 
-% Remove rows with missing data
-Y = Y(all(isfinite(Y) & Y ~= 0,2),:);
-
-N = size(Y,1);
 M = size(X,1);
 K = size(X,2);
 
@@ -79,14 +81,30 @@ if isempty(Q)
 end
 J = size(Q,1);
 
+
 % -------------------------------------------------------------------------
 % Checks sizes
 
-if size(Y,2) ~= M                       ...
+Yshape = size(Y);
+if M == 1, Nd = ndims(Y); if Nd == 2 && size(Y,2) == 1, Nd = 1; end
+else,      Nd = ndims(Y)-1; end
+if Nd > 1
+    Nz = size(Y,Nd);
+else
+    Nz = 1;
+    M  = size(Y,2);
+end
+
+if size(Y,Nd+1) ~= M                       ...
 || ~any(size(Q,2) == [1 M (M*(M+1))/2]) ...
 || ~any(size(Q,3) == [1 M])
     error('Incompatible matrix sizes')
 end
+
+% Build a cell of handles that load slices on the fly
+Y0 = Y;
+if Nd > 1, Y = cellfun(@(n) (@() reshape(spm_subsref(Y0,n,Nd), [], M)), 1:Nd, 'UniformOutput', false);
+else,      Y = {@() Y0};  end
 
 % Layout of the covariance bases
 if ~ismatrix(Q),        layout = 'F';    % Full
@@ -105,22 +123,20 @@ end
 
 % -------------------------------------------------------------------------
 % Initial fit + homoscedastic variance
+B = cell(Nz,1);
+h = 0;
+N = 0;
+for z=1:Nz
+    Yz   = Y{z}();
+    Yz   = Yz(all(isfinite(Yz) & Yz ~= 0,2),:);
+    N    = N + size(Yz,1);
+    B{z} = gllm_fit(Yz,X,1,opt.fit);
+    R    = exp(B{z}*X') - Yz;
+    h    = h + dot(R(:),R(:));
+end
+h = h / (M*N);
 
-% Initial fit
-B = gllm_fit(Y,X,1,opt.fit);
-% Residuals
-R = exp(B*X') - Y;
-% Compute homoscedastic variance
-h = dot(R(:),R(:)) / (N*M);
-% Scale by voxel-wise variance
-W = M ./ dot(R,R,2);
-Y = Y .* sqrt(W);
-% Rescale by homoscedastic variance
-Y = Y * sqrt(h);
-% Recompute fit
-B = gllm_fit(Y,X,1,opt.fit);
-
-% Initialize hyperparameter (minimize KL between C and sigma^2 * I)
+% Initialize hyperparameter (minimize KL between C and s^2 * I)
 h = init_cov(QS,h,layout,opt.verb);
 
 % Adapt mode for weighted gllm_fit
@@ -162,12 +178,18 @@ for iter=1:opt.iter
     else,               A = spmb_sym_inv(C); end
     % --------------------------------------------------------------------
     % Run WNLS fit
+    R = 0;
     if ~USE_SYM && layout ~= 'D', A = spmb_sym2full(A); end
-    opt.fit.init = B;
-    B = gllm_fit(Y,X,spm_unsqueeze(A,1),opt.fit);
-    R = residual_matrix(Y,X,B,A);
+    for z=1:Nz
+        Yz           = Y{z}();
+        Yz           = Yz(all(isfinite(Yz) & Yz ~= 0,2),:);
+        opt.fit.init = B{z};
+        B{z}         = gllm_fit(Yz,X,spm_unsqueeze(A,1),opt.fit);
+        R            = R + residual_matrix(Yz,X,B{z},A);
+    end
     if USE_SYM && layout ~= 'D', A = spmb_sym2full(A); end
     R = R / N;
+
    
     % ---------------------------------------------------------------------
     % Utility matrices
@@ -234,6 +256,33 @@ if opt.verb, fprintf('\n'); end
 
 % Reconstruct covariance
 C = sum(h .* Q0, 1);
+
+% Return model parameters
+if nargout > 1
+    B0 = B{1};
+    if Nd == 1
+        Yz           = Y{z}();
+        B            = zeros([size(Yz,1) K], class(B0));
+        msk          = all(isfinite(Yz) & Yz ~= 0,2);
+        Yz           = Yz(msk,:);
+        opt.fit.init = B0;
+        B(msk,:)     = gllm_fit(Yz,X,spm_unsqueeze(A,1),opt.fit);
+        B            = reshape(B, [Yshape(1:Nd) K]);
+    else
+        B  = zeros([Yshape(1:Nd) K], class(B{1}));
+        for z=1:Nz
+            Yz           = Y{z}();
+            Bz           = zeros([size(Yz,1) K], class(B0{z}));
+            msk          = all(isfinite(Yz) & Yz ~= 0,2);
+            Yz           = Yz(msk,:);
+            opt.fit.init = B0{z};
+            B0{z}         = [];
+            Bz(msk,:)    = gllm_fit(Yz,X,spm_unsqueeze(A,1),opt.fit);
+            Bz           = reshape(Bz, [Yshape(1:Nd-1) 1 K]);
+            B            = spm_subsasgn(B,Bz,z,Nd);
+        end
+    end
+end
 
 % Assign posterior precision to var P
 P = H;
