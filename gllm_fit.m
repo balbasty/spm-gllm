@@ -170,11 +170,10 @@ else,     LW = 0; end
 opt_diff.mode  = mode;
 opt_diff.accel = opt.accel;
 msg = '';
-L0  = inf;
-LL0 = inf;
-D   = [];
-alpha = 1e-3;
-beta  = ones(N,1);
+L0  = inf;          % Log-likelihood per voxel (mean across channels)
+LL0 = inf;          % Log-likelihood across voxels 
+alpha = 1e-3;       % Marquardt regularization
+beta  = ones(N,1);  % Line search factor
 for i=1:opt.iter
 
     % ---------------------------------------------------------------------
