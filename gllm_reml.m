@@ -112,11 +112,17 @@ B = gllm_fit(Y,X,1,opt.fit);
 R = exp(B*X') - Y;
 % Compute homoscedastic variance
 h = dot(R(:),R(:)) / (N*M);
-% Scale by voxel-wise variance
-W = M ./ dot(R,R,2);
+% Scale by voxel-wise variance 
+% NOTE: M-K comes from ReML estimate of variance (would be M otherwise)
+W = (M-K) ./ dot(R,R,2);
 Y = Y .* sqrt(W);
-% Rescale by homoscedastic variance
-Y = Y * sqrt(h);
+if false
+    % Rescale by homoscedastic variance
+    % NOTE: Global scaling should not change anything.
+    Y = Y * sqrt(h);
+else
+    h = 1;
+end
 % Recompute fit
 B = gllm_fit(Y,X,1,opt.fit);
 
@@ -241,6 +247,8 @@ end
 
 % =========================================================================
 function R = residual_matrix_sym(Y,X,B,A)
+% This variant uses a compact symmetric representation when computing
+% the posterior covariance
 
 M  = size(Y,2);
 K  = size(X,2);
@@ -257,9 +265,14 @@ ZZ = spmb_sym_outer(Z,'dim',2);
 % -----------------
 S  = ZZ;
 A  = spm_unsqueeze(A,1);
-if size(A,2) == M, S(:,1:M) = S(:,1:M) .* A;
-else,              S = S .* A;  end
-S  = spmb_sym_outer(spm_unsqueeze(X',1), S, 'dim', 2);
+if size(A,2) == M
+    S = S(:,1:M) .* A;
+    S = spm_unsqueeze(X',1) .* sqrt(spm_unsqueeze(S,2));
+    S = spmb_sym_outer(S, 'dim', 2);
+else
+    S = S .* A;
+    S = spmb_sym_outer(spm_unsqueeze(X',1), S, 'dim', 2);
+end
 
 % Uncertainty about B       (N x K*(K+1)/2)
 % -------------------
@@ -272,6 +285,7 @@ S  = spmb_sym_outer(spm_unsqueeze(X,1), S, 'dim', 2);
 
 % Expected moments          (M x M)
 % ----------------
+S  = min(max(S,-128),128);                         % stabilise before exp
 S  = exp(S);
 ZZ = spm_squeeze(dot(ZZ, S, 1), 1);                % E[Z'*Z]
 ZZ = spmb_sym2full(ZZ);
@@ -288,6 +302,8 @@ end
 
 % =========================================================================
 function R = residual_matrix_full(Y,X,B,A)
+% This variant uses a full matrix representation when computing
+% the posterior covariance
 
 M  = size(Y,2);
 K  = size(X,2);
@@ -305,26 +321,26 @@ ZZ = spm_unsqueeze(Z,2) .* spm_unsqueeze(Z,3);
 % Precision about B         (N x K x K)
 % -----------------
 S = ZZ;
-if size(A,2) == M, S(:,dM) = S(:,dM) .* A;
-else,              S       = S       .* A;  end
-S = outer(S,X');
+if size(A,2) == M, S = S(:,dM) .* A;  S = outerdiag(S,X');
+else,              S = S       .* A;  S = outerfull(S,X'); end
 
 % Uncertainty about B       (N x K x K)
 % -------------------
 S        = spmb_full2sym(S,2);
-S(:,1:K) = S(:,1:K) + max(abs(S(:,1:K)),[],2) * 1e-8;
+S(:,1:K) = S(:,1:K) + max(abs(S(:,1:K)),[],2) * 1e-3;
 S        = spmb_sym_inv(S,2);
 S        = spmb_sym2full(S,2);
 
 % Uncertainty about BX'     (N x M x M)
 % ---------------------
-S = outer(S,X);
+S = outerfull(S,X);
 
 % Expected moments          (M x M)
 % ----------------
+S  = min(max(S,-128),128);                         % stabilise before exp
 S  = exp(S);
 ZZ = spm_squeeze(dot(ZZ, S, 1), 1);                % E[Z'*Z]
-YZ = Z .* sqrt(S(:,spm_diagind(M)));               % E[Z]
+YZ = Z .* sqrt(S(:,dM));                           % E[Z]
 YZ = Y'*YZ;                                        % E[Z'*Y]
 
 % Build residual matrix     (M x M)
@@ -335,11 +351,26 @@ YY = Y' * Y;
 R  = ZZ + YY - YZ;
 end
 
-function XAX = outer(A,X)
-Xt  = spm_unsqueeze(X',1);
-X   = spm_unsqueeze(X,1);
-XA  = spmb_matmul(X,A,2);
-XAX = spmb_matmul(XA,Xt,2);
+% =========================================================================
+function XAX = outerfull(A,X)
+% A   - N x K x K
+% X   - K x M
+% XAX - N x M x M
+Xt  = spm_unsqueeze(X',1);   % 1 x M x K
+X   = spm_unsqueeze(X,1);    % 1 x K x M
+XA  = spmb_matmul(X,A,2);    % N x M x K
+XAX = spmb_matmul(XA,Xt,2);  % N x K x K
+end
+
+function XAX = outerdiag(A,X)
+% A   - N x K
+% X   - K x M
+% XAX - N x M x M
+Xt  = spm_unsqueeze(X',1);   % 1 x M x K
+X   = spm_unsqueeze(X,1);    % 1 x K x M
+A   = spm_unsqueeze(A,2);    % N x 1 x K
+XA  = X .* A;                % N x M x K
+XAX = spmb_matmul(XA,Xt,2);  % N x K x K
 end
 
 % =========================================================================
