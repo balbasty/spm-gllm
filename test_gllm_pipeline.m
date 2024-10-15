@@ -1,15 +1,20 @@
 FOLDER  = '/Users/balbasty/localdata/antoine/ExampleDataITS';
-VARIANT = 'Standard';   % (ITS|Standard)
+VARIANT = 'ITS';   % (ITS|Standard)
 REP     = 'rep1';       % (rep1|rep2|rep3)
 FIT     = 'nlreml';     % (nlreml|nlls|ols)
+DROP    = 2;
 
 % -------------------------------------------------------------------------
 % Get files
 fnames = spm_select('FPList',[FOLDER '/' VARIANT '/' REP '/'],'.nii$');
 
+% Drop first few echoes
+fnames = fnames(DROP+1:end,:);
+
 % -------------------------------------------------------------------------
 % Build virtual array of observations
 Y = spm_volarray(fnames);
+
 
 % -------------------------------------------------------------------------
 % Parse TE
