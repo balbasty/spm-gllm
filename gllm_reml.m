@@ -110,24 +110,15 @@ end
 B = gllm_fit(Y,X,1,opt.fit);
 % Residuals
 R = exp(B*X') - Y;
-% Compute homoscedastic variance
-h = dot(R(:),R(:)) / (N*M);
 % Scale by voxel-wise variance 
 % NOTE: M-K comes from ReML estimate of variance (would be M otherwise)
 W = (M-K) ./ dot(R,R,2);
 Y = Y .* sqrt(W);
-if false
-    % Rescale by homoscedastic variance
-    % NOTE: Global scaling should not change anything.
-    Y = Y * sqrt(h);
-else
-    h = 1;
-end
 % Recompute fit
 B = gllm_fit(Y,X,1,opt.fit);
 
 % Initialize hyperparameter (minimize KL between C and sigma^2 * I)
-h = init_cov(QS,h,layout,opt.verb);
+h = init_cov(QS,1,layout,opt.verb);
 
 % Adapt mode for weighted gllm_fit
 if layout == 'D', opt.fit.mode = 'E';    % ESTATICS
@@ -173,7 +164,6 @@ for iter=1:opt.iter
     B = gllm_fit(Y,X,spm_unsqueeze(A,1),opt.fit);
     R = residual_matrix(Y,X,B,A);
     if USE_SYM && layout ~= 'D', A = spmb_sym2full(A); end
-    R = R / N;
    
     % ---------------------------------------------------------------------
     % Utility matrices
@@ -250,26 +240,26 @@ function R = residual_matrix_sym(Y,X,B,A)
 % This variant uses a compact symmetric representation when computing
 % the posterior covariance
 
+N  = size(Y,1);
 M  = size(Y,2);
 K  = size(X,2);
 
-% Fitted signal
-% -------------
-Z  = exp(B*X');
-
-% 2nd moment in Z           (N x M*(M+1)/2)
-% ---------------
-ZZ = spmb_sym_outer(Z,'dim',2);
-
 % Precision about B         (N x K*(K+1)/2)
 % -----------------
-S  = ZZ;
+% NOTE: I add a hacky shrinkage prior. 
+%       It has no effect most of the case but does prevent a complete 
+%       blowout when volumes are extremely imbalanced in some voxels
+%       (e.g., very strong exponential decay)
+Z  = exp(B*X');
+Z  = 0.999 * Z + 0.001 * mean(Z);   % < the "shrinkage prior"
 A  = spm_unsqueeze(A,1);
 if size(A,2) == M
-    S = S(:,1:M) .* A;
+    S = Z.^2;
+    S = S .* A;
     S = spm_unsqueeze(X',1) .* sqrt(spm_unsqueeze(S,2));
     S = spmb_sym_outer(S, 'dim', 2);
 else
+    S = spmb_sym_outer(Z,'dim',2);
     S = S .* A;
     S = spmb_sym_outer(spm_unsqueeze(X',1), S, 'dim', 2);
 end
@@ -285,12 +275,12 @@ S  = spmb_sym_outer(spm_unsqueeze(X,1), S, 'dim', 2);
 
 % Expected moments          (M x M)
 % ----------------
-S  = min(max(S,-128),128);                         % stabilise before exp
 S  = exp(S);
+EZ = Z .* sqrt(S(:,1:M));                          % E[Z]
+ZZ = spmb_sym_outer(EZ,'dim',2);                   % E[z] * E[z]'
 ZZ = spm_squeeze(dot(ZZ, S, 1), 1);                % E[Z'*Z]
 ZZ = spmb_sym2full(ZZ);
-YZ = Z .* sqrt(S(:,1:M));                          % E[Z]
-YZ = Y'*YZ;                                        % E[Z'*Y]
+YZ = Y'*EZ;                                        % E[Z]'*Y
 
 % Build residual matrix     (M x M)
 % ---------------------
@@ -298,6 +288,7 @@ YZ = Y'*YZ;                                        % E[Z'*Y]
 YZ = YZ + YZ';
 YY = Y' * Y;
 R  = ZZ + YY - YZ;
+R  = R / N;
 end
 
 % =========================================================================
@@ -305,29 +296,34 @@ function R = residual_matrix_full(Y,X,B,A)
 % This variant uses a full matrix representation when computing
 % the posterior covariance
 
+N  = size(Y,1);
 M  = size(Y,2);
 K  = size(X,2);
 dM = spm_diagind(M);
 A  = spm_unsqueeze(A,1);
 
-% Fitted signal
-% -------------
-Z  = exp(B*X');
-
-% 2nd moment in Z           (N x M x M)
-% ---------------
-ZZ = spm_unsqueeze(Z,2) .* spm_unsqueeze(Z,3);
-
 % Precision about B         (N x K x K)
 % -----------------
-S = ZZ;
-if size(A,2) == M, S = S(:,dM) .* A;  S = outerdiag(S,X');
-else,              S = S       .* A;  S = outerfull(S,X'); end
+% NOTE: I add a hacky shrinkage prior. 
+%       It has no effect most of the case but does prevent a complete 
+%       blowout when volumes are extremely imbalanced in some voxels
+%       (e.g., very strong exponential decay)
+Z  = exp(B*X');
+Z  = 0.999 * Z + 0.001 * mean(Z);   % < the "shrinkage prior"
+if size(A,2) == M
+    S = Z.^2;
+    S = S .* A; 
+    S = outerdiag(S,X');
+else
+    S = spm_unsqueeze(Z,2) .* spm_unsqueeze(Z,3);
+    S = S .* A; 
+    S = outerfull(S,X'); 
+end
 
 % Uncertainty about B       (N x K x K)
 % -------------------
 S        = spmb_full2sym(S,2);
-S(:,1:K) = S(:,1:K) + max(abs(S(:,1:K)),[],2) * 1e-3;
+S(:,1:K) = S(:,1:K) + max(abs(S(:,1:K)),[],2) * 1e-8;
 S        = spmb_sym_inv(S,2);
 S        = spmb_sym2full(S,2);
 
@@ -337,11 +333,25 @@ S = outerfull(S,X);
 
 % Expected moments          (M x M)
 % ----------------
-S  = min(max(S,-128),128);                         % stabilise before exp
-S  = exp(S);
-ZZ = spm_squeeze(dot(ZZ, S, 1), 1);                % E[Z'*Z]
-YZ = Z .* sqrt(S(:,dM));                           % E[Z]
-YZ = Y'*YZ;                                        % E[Z'*Y]
+
+% First, work in log-space
+EZ = B*X' + S(:,dM) * 0.5;                           % log(E[Z])
+ZZ = EZ + spm_unsqueeze(EZ,2);                      
+ZZ = ZZ + S;                                         % log(E[z*z'])
+
+% Then, take exponential and accumulate
+ZZ = spm_squeeze(exp(logsumexp(ZZ,1)),1);            % E[Z'*Z]
+
+if all(Y(:)>0)
+    % we can also use the logsumexp trick
+    YZ = log(Y);
+    YZ = YZ + spm_unsqueeze(EZ,2);                   % log(E[y*z'])
+    YZ = spm_squeeze(exp(logsumexp(YZ,1)),1);        % E[Y'*Z]
+else
+    % we must exponentiate before taking the dot product
+    EZ = exp(EZ);                                    % E[Z]
+    YZ = Y'*EZ;                                      % E[Y'*Z]
+end
 
 % Build residual matrix     (M x M)
 % ---------------------
@@ -349,6 +359,7 @@ YZ = Y'*YZ;                                        % E[Z'*Y]
 YZ = YZ + YZ';
 YY = Y' * Y;
 R  = ZZ + YY - YZ;
+R  = R / N;
 end
 
 % =========================================================================
@@ -371,6 +382,11 @@ X   = spm_unsqueeze(X,1);    % 1 x K x M
 A   = spm_unsqueeze(A,2);    % N x 1 x K
 XA  = X .* A;                % N x M x K
 XAX = spmb_matmul(XA,Xt,2);  % N x K x K
+end
+
+function L = logsumexp(X,dim)
+L = max(X,[],dim);
+L = L + log(sum(exp(X - L),dim));
 end
 
 % =========================================================================

@@ -134,13 +134,16 @@ for i=1:opt.iter
 
     % ---------------------------------------------------------------------
     % Check for early stopping
+    S = Y-F;
+    S = sqrt(dot(S,S,2) ./ (M-K));
+    R = (Y-F)./S;
     switch wmode
-    case 'D', L = mean(mean(W.*(Y-F).^2));
-    case 'S', L = mean(spmb_sym_inner(Y-F, W, 'dim', 2)) / M;
-    case 'F', L = mean(mean((Y-F) .* spmb_matvec(W,Y-F,2)));
+    case 'D', L = mean(mean(W.*R.^2));
+    case 'S', L = mean(spmb_sym_inner(R, W, 'dim', 2)) / M;
+    case 'F', L = mean(mean(R .* spmb_matvec(W,R,2)));
     end
-    L = 0.5 * (L - LW);
-    gain = (L0-L)/L0;
+    L = 0.5 * (L - LW + mean(log(S)));
+    gain = (L0-L); % /L0;
     if opt.verb
         if opt.verb >= 2, fprintf('\n');
         else,             fprintf(repmat('\b',1,length(msg))); end

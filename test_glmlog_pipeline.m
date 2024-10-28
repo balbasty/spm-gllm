@@ -1,7 +1,6 @@
 FOLDER  = '/Users/balbasty/localdata/antoine/ExampleDataITS';
-VARIANT = 'Standard';        % (ITS|Standard)
-REP     = 'rep3';       % (rep1|rep2|rep3)
-FIT     = 'nlreml';     % (nlreml|nlls|ols)
+VARIANT = 'ITS';   % (ITS|Standard)
+REP     = 'rep1';       % (rep1|rep2|rep3)
 DROP    = 3;
 
 % -------------------------------------------------------------------------
@@ -14,9 +13,6 @@ fnames = fnames(DROP+1:end,:);
 % -------------------------------------------------------------------------
 % Build virtual array of observations
 Y = spm_volarray(fnames);
-
-% Noisify data to account for discretization
-Y.rand = true;
 
 % -------------------------------------------------------------------------
 % Parse TE
@@ -31,59 +27,63 @@ end
 
 % -------------------------------------------------------------------------
 % Build design matrix and covariance basis
-X = [ones(numel(TE),1) -TE'];
-Q = [ones(numel(TE),1) TE']';
-
-% X = spm_orth(X);
+X = (-TE') .^ (0:1);
+Q =  (TE') .^ (0:1);
 
 M = size(X,1);
 K = size(X,2);
 
+% Make sparse basis for spm_reml
+Q = {spdiags(Q(:,1),0,M,M) spdiags(Q(:,2),0,M,M)};
+
 % -------------------------------------------------------------------------
 % ReML estimate of covariance
-if strcmpi(FIT, 'nlreml')
-    % ---------------------------------------------------------------------
-    % Estimate mask of voxels to keep
-    % > To speed things up, use best 2^16 voxels (approx.)
-    MSK = gllm_reml_mask(Y,X,2^16);
-    
-    % ---------------------------------------------------------------------
-    % Collect data in the mask of ReML
-    YM  = zeros(sum(MSK(:)),M);
-    off = 0;
-    for z=1:size(Y,3)
-        Y1  = reshape(Y(:,:,z,:),[],M);
-        M1  = reshape(MSK(:,:,z), [], 1);
-        Y1  = reshape(Y1(M1,:,:), [], M);
-        chk = size(Y1,1);
-        YM(off+1:off+chk,:) = Y1;
-        off = off + chk;
-    end
 
-    % ---------------------------------------------------------------------
-    % Estimate covariance
-    [C,~,h] = gllm_reml(YM,X,Q,struct('verb',2));
-else
-    C = 1;
+% -------------------------------
+% Estimate mask of voxels to keep
+% > To speed things up, use best 2^16 voxels (approx.)
+MSK = gllm_reml_mask(Y,X,2^16);
+
+% --------------------------------
+% Collect data in the mask of ReML
+N   = sum(MSK(:));
+YM  = zeros(N,M);
+off = 0;
+for z=1:size(Y,3)
+    Y1  = reshape(Y(:,:,z,:),[],M);
+    M1  = reshape(MSK(:,:,z), [], 1);
+    Y1  = reshape(Y1(M1,:,:), [], M);
+    chk = size(Y1,1);
+    YM(off+1:off+chk,:) = Y1;
+    off = off + chk;
 end
+
+% ------------------------------------
+% Take log
+YM = log(YM + 1e-4);
+
+% ------------------------------------
+% Prepare observed covariance for ReML
+B  = YM / X';
+R  = B*X' - YM;
+S  = dot(R,R,2) / (M-K);
+RR = (R' * (R ./ S)) / N;
+YY = YM ./ sqrt(S);
+YY = (YY' * YY) / N;
+
+% -------------------------------------------------------------------------
+% Estimate covariance
+[C,h] = spm_reml(YY,X,Q);
 
 % -------------------------------------------------------------------------
 % Look at fits
-Y0 = YM;
-
-N  = size(Y0,1);
-B  = gllm_fit(Y0,X,1./C);
-R  = Y0 - exp(B*X');
-S  = dot(R,R,2) / (M-K);
-RR = (R' * (R ./ S)) / N;
-
 figure
 idx = 1;
 hold off
-scatter(TE, Y0(idx,:));
+scatter(TE, YM(idx,:));
 hold on
 T = linspace(0,18,128); 
-plot(T, exp(B(idx,:)*((-T)' .^ (0:1))')); 
+plot(T, B(idx,:)*((-T)' .^ (0:1))'); 
 hold off;
 
 % -------------------------------------------------------------------------
@@ -127,4 +127,3 @@ subplot(1,3,2)
 imagesc(B(:,:,64,2)*1000, [0 100]);
 subplot(1,3,3)
 bar(C)
-

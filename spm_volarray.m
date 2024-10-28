@@ -19,11 +19,20 @@ properties
     dim
     hold
     dt
+    rand
     msk
 end
-methods        
+methods
 % =========================================================================
-function obj = spm_volarray(P,mat,dim,hold,dt)
+function val = get.hold(obj), val = obj.hold; end
+function val = get.dt(obj),   val = obj.dt;   end
+function val = get.rand(obj), val = obj.rand; end
+% =========================================================================
+function obj = set.hold(obj, val), obj.hold = val; end
+function obj = set.dt  (obj, val), obj.dt   = val; end
+function obj = set.rand(obj, val), obj.rand = val; end
+% =========================================================================
+function obj = spm_volarray(P,mat,dim,hold,dt,rand)
 % FORMAT A = spm_volarray(P,mat,dim)
 %
 % P    - A char or cell array of filenames
@@ -31,6 +40,7 @@ function obj = spm_volarray(P,mat,dim,hold,dt)
 % dim  - (1 x 3) Volume dimensions [default: from first volume in P]
 % hold - Interpolation method      [default: 1] (see spm_slice_vol) 
 % dt   - Returned data type        [default: double]
+% rand - Add scaled random noise   [default: false]
 %__________________________________________________________________________
     obj.vol = spm_vol(P);
     obj.msk = [];
@@ -42,6 +52,8 @@ function obj = spm_volarray(P,mat,dim,hold,dt)
     else,          obj.hold = 1;                 end
     if nargin > 4, obj.dt   = dt;
     else,          obj.dt   = 'double';          end
+    if nargin > 5, obj.rand = rand;
+    else,          obj.rand = false;             end
 end
 % =========================================================================
 function dim = size(obj,d)
@@ -74,11 +86,12 @@ function dt = class(obj)
     dt = obj.dt;
 end
 % =========================================================================
-function S = subsref(obj,subs)
+function varargout = subsref(obj,subs)
     if subs(1).type == '.'
-        F = obj.(subs(1).subs);
-        if numel(subs) > 1
-            S = subsref(F,subs(2:end));
+        if nargout == 0
+            varargout = {builtin('subsref',obj,subs)};
+        else
+            [varargout{1:nargout}] = builtin('subsref',obj,subs);
         end
         return;
     end
@@ -134,6 +147,9 @@ function S = subsref(obj,subs)
             Al     = obj.mat\v.mat\spm_matrix([0 0 z]);
             W{k}   = spm_slice_vol(v,Al,obj.dim(1:2),obj.hold);
             W{k}   = W{k}(subs{1:2});
+            if obj.rand && ~strcmpi(v.private.dat.dtype(1:5), 'FLOAT')
+                W{k} = W{k} + rand(size(W{k})) * v.private.dat.scl_slope;
+            end
         end
         S{l} = cat(3,W{:});
 
@@ -149,10 +165,16 @@ function S = subsref(obj,subs)
         S(submsk) = NaN;
     end
 
+    varargout = {S};
+
 end
 % =========================================================================
 function obj = subsasgn(obj,subs,dat)
-    error('spm_varray are read only');
+    if subs(1).type == '.'
+        obj = builtin('subsasgn',obj,subs,dat);
+        return;
+    end
+    error('spm_volarray are read only');
 end
 % =========================================================================
 function A = numeric(obj)

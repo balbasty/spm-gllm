@@ -1,4 +1,4 @@
-function W = gllm_reml_mask(Y,X,MX)
+function W = gllm_reml_mask(Y,X,MX,opt)
 % Automatically select voxels that enter covariance estimate
 %
 % FORMAT W = gllm_reml_mask(Y,X)
@@ -10,6 +10,9 @@ function W = gllm_reml_mask(Y,X,MX)
 %__________________________________________________________________________
 
 % Yael Balbastre
+
+if nargin < 4,            opt      = struct;    end
+if ~isfield(opt, 'verb'), opt.verb = 1;         end
 
 % -------------------------------------------------------------------------
 % Checks sizes
@@ -51,7 +54,7 @@ for z=1:Nz
     V       = spm_subsasgn(V,Vz,{z},Nd);
     % Perform fit
     Yz      = Yz(msk,:);
-    Bz      = gllm_fit(Yz,X,1);
+    Bz      = gllm_fit(Yz,X,1,opt);
     % Compute squared residuals (across channels)
     Rz(msk) = residuals(Yz,X,Bz);
     Rz      = reshape(Rz, [Yshape(1:Nd-1) 1]);
